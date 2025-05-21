@@ -38,6 +38,6 @@ public class Pessoa {
 }
 }
 
-/*enum TipoPessoa {
+enum TipoPessoa {
     CLIENTE, FORNECEDOR, AMBOS
-}*/
+}
