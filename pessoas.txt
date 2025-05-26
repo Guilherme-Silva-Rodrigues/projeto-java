@@ -1,0 +1,2 @@
+1;guilherme;CLIENTE;
+2;joao;FORNECEDOR;
