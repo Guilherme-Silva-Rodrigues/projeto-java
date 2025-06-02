@@ -1,1 +1,2 @@
 1;guilherme;CLIENTE;manoel cordeiro,63,curitiba,RESIDENCIAL
+11;joao;FORNECEDOR;NULL_ENDERECO
