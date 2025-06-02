@@ -1,3 +1,1 @@
-1;guilherme;CLIENTE;
-2;joao;FORNECEDOR;
-3;lucas;FORNECEDOR;
+1;guilherme;CLIENTE;manoel cordeiro,63,curitiba,RESIDENCIAL

@@ -1,19 +1,21 @@
 import java.io.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class PessoaDAO {
-    private List<Pessoa> pessoas = new ArrayList<>();
     private static final String ARQUIVO = "pessoas.txt";
+    private List<Pessoa> pessoas = new ArrayList<>();
 
     public PessoaDAO() {
         carregarArquivo();
     }
+    public List<Pessoa> listarTodas() {
+        return new ArrayList<>(pessoas);
+    }
+    
 
     private void carregarArquivo() {
-        File file = new File(ARQUIVO);
-        if (!file.exists()) return;
-
-        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+        try (BufferedReader br = new BufferedReader(new FileReader(ARQUIVO))) {
             String linha;
             while ((linha = br.readLine()) != null) {
                 Pessoa p = Pessoa.fromString(linha);
@@ -52,24 +54,25 @@ public class PessoaDAO {
         return false;
     }
 
-    public boolean deletar(int codigo) {
-        Pessoa p = buscarPorCodigo(codigo);
-        if (p != null) {
-            pessoas.remove(p);
+    public boolean remover(int codigo) {
+        boolean removido = pessoas.removeIf(p -> p.getCodigo() == codigo);
+        if (removido) {
             salvarArquivo();
-            return true;
         }
-        return false;
+        return removido;
+    }
+
+    public List<Pessoa> listar() {
+        return pessoas;
     }
 
     public Pessoa buscarPorCodigo(int codigo) {
-        return pessoas.stream()
-                .filter(p -> p.getCodigo() == codigo)
-                .findFirst()
-                .orElse(null);
+        for (Pessoa p : pessoas) {
+            if (p.getCodigo() == codigo) {
+                return p;
+            }
+        }
+        return null;
     }
-
-    public List<Pessoa> listarTodas() {
-        return new ArrayList<>(pessoas);
-    }
+    
 }
