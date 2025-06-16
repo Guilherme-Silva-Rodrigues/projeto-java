@@ -1,4 +1,5 @@
 import java.text.DecimalFormat;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Scanner;
@@ -6,6 +7,7 @@ import java.util.Scanner;
 public class Principal {
     static PessoaDAO pessoaDAO = new PessoaDAO();
     static ProdutoDAO produtoDAO = new ProdutoDAO(pessoaDAO);
+    static PedidoVendaDAO pedidoVendaDAO = new PedidoVendaDAO(pessoaDAO, produtoDAO);
     private static Scanner sc = new Scanner(System.in);
     private static DecimalFormat df = new DecimalFormat("#,##0.00");
 
@@ -16,6 +18,7 @@ public class Principal {
             System.out.println("\n--- MENU PRINCIPAL ---");
             System.out.println("1 - Gerenciar Pessoas");
             System.out.println("2 - Gerenciar Produtos");
+            System.out.println("3 - Gerenciar Pedidos");
             System.out.println("0 - Sair");
             System.out.print("Opcao: ");
             opcao = lerInteiro("");
@@ -26,6 +29,9 @@ public class Principal {
                     break;
                 case 2:
                     menuProdutos();
+                    break;
+                case 3:
+                    menuPedidos();
                     break;
                 case 0:
                     System.out.println("Saindo...");
@@ -139,7 +145,7 @@ public class Principal {
         System.out.println("\n--- Cadastrar Nova Pessoa ---");
         int codigo = lerInteiro("Código: ");
 
-        if (pessoaDAO.buscarPorCodigo(codigo) != null) {
+        if (pessoaDAO.buscarPorCodigo(codigo).isPresent()) {
             System.out.println("ERRO: Código de pessoa já cadastrado!");
             return;
         }
@@ -157,7 +163,7 @@ public class Principal {
             String cidade = lerStringNaoVazia("Cidade: ");
             TipoEndereco tipoEndereco = lerTipoEnderecoInput();
             try {
-                 endereco = new Endereco(rua, numero, cidade, tipoEndereco);
+                endereco = new Endereco(rua, numero, cidade, tipoEndereco);
             } catch (IllegalArgumentException e) {
                 System.out.println("ERRO ao criar endereço: " + e.getMessage());
                 return;
@@ -181,8 +187,8 @@ public class Principal {
             System.out.println("\n--- Lista de Pessoas ---");
             for (Pessoa p : pessoas) {
                 System.out.print("Código: " + p.getCodigo() +
-                        ", Nome: " + p.getNome() +
-                        ", Tipo Pessoa: " + p.getTipo());
+                                 ", Nome: " + p.getNome() +
+                                 ", Tipo Pessoa: " + p.getTipo());
                 if (p.getEndereco() != null) {
                     Endereco end = p.getEndereco();
                     System.out.print(", Endereço: [" + end.getRua() + ", " + end.getNumero() +
@@ -199,11 +205,12 @@ public class Principal {
         System.out.println("\n--- Atualizar Pessoa ---");
         int codigo = lerInteiro("Código da pessoa a atualizar: ");
 
-        Pessoa pExistente = pessoaDAO.buscarPorCodigo(codigo);
-        if (pExistente == null) {
+        Optional<Pessoa> pExistenteOpt = pessoaDAO.buscarPorCodigo(codigo);
+        if (pExistenteOpt.isEmpty()) {
             System.out.println("Pessoa não encontrada.");
             return;
         }
+        Pessoa pExistente = pExistenteOpt.get();
 
         System.out.println("Deixe em branco para manter o valor atual (exceto para tipos).");
 
@@ -221,7 +228,7 @@ public class Principal {
         System.out.print("Deseja modificar o endereço? (s/n): ");
         if (sc.nextLine().trim().equalsIgnoreCase("s")) {
             if (enderecoAtualizado == null) {
-                 System.out.println("Cadastrando novo endereço para a pessoa:");
+                System.out.println("Cadastrando novo endereço para a pessoa:");
             }
             String rua = lerStringNaoVazia("Rua (atual: " + (enderecoAtualizado != null ? enderecoAtualizado.getRua() : "N/A") + "): ");
             String numero = lerStringNaoVazia("Número (atual: " + (enderecoAtualizado != null ? enderecoAtualizado.getNumero() : "N/A") + "): ");
@@ -240,11 +247,10 @@ public class Principal {
             pExistente.setTipo(novoTipoPessoa);
             pExistente.setEndereco(enderecoAtualizado);
 
-            if (pessoaDAO.remover(codigo)) {
-                pessoaDAO.adicionar(pExistente);
+            if (pessoaDAO.atualizar(pExistente)) {
                 System.out.println("Pessoa atualizada com sucesso!");
             } else {
-                System.out.println("Erro ao atualizar pessoa (falha ao remover/readicionar).");
+                System.out.println("Erro ao atualizar pessoa (problema no DAO).");
             }
         } catch (IllegalArgumentException e) {
             System.out.println("ERRO ao atualizar pessoa: " + e.getMessage());
@@ -335,7 +341,7 @@ public class Principal {
     }
 
     private static void listarProdutos() {
-        List<Produto> produtos = produtoDAO.listarTodos();
+        List<Produto> produtos = produtoDAO.listarTodas();
         if (produtos.isEmpty()) {
             System.out.println("Nenhum produto cadastrado.");
         } else {
@@ -345,8 +351,9 @@ public class Principal {
                                  ", Descrição: " + p.getDescricao() +
                                  ", Custo: R$" + df.format(p.getCusto()) +
                                  ", Preço Venda: R$" + df.format(p.getPrecoVenda()));
-                Pessoa fornecedor = pessoaDAO.buscarPorCodigo(p.getCodigoFornecedor());
-                if (fornecedor != null) {
+                Optional<Pessoa> fornecedorOpt = pessoaDAO.buscarPorCodigo(p.getCodigoFornecedor());
+                if (fornecedorOpt.isPresent()) {
+                    Pessoa fornecedor = fornecedorOpt.get();
                     System.out.print(", Fornecedor: " + fornecedor.getNome() + " (Cód: " + p.getCodigoFornecedor() + ")");
                 } else {
                     System.out.print(", Fornecedor Cód: " + p.getCodigoFornecedor() + " (Não encontrado)");
@@ -396,18 +403,24 @@ public class Principal {
         }
 
         System.out.println("--- Fornecedores Disponíveis ---");
-         List<Pessoa> fornecedores = pessoaDAO.listarTodas().stream()
+        List<Pessoa> fornecedores = pessoaDAO.listarTodas().stream()
             .filter(p -> p.getTipo() == TipoPessoa.FORNECEDOR || p.getTipo() == TipoPessoa.AMBOS)
             .toList();
 
         if (fornecedores.isEmpty()) {
             System.out.println("Nenhum fornecedor cadastrado. Não é possível alterar o fornecedor do produto.");
         } else {
-             for (Pessoa f : fornecedores) {
+            for (Pessoa f : fornecedores) {
                 System.out.println("Código: " + f.getCodigo() + " - Nome: " + f.getNome());
             }
         }
         int codigoFornecedor = lerInteiro("Novo código do Fornecedor (atual: " + produtoExistente.getCodigoFornecedor() + "): ");
+        
+        Optional<Pessoa> novoFornecedorOpt = pessoaDAO.buscarPorCodigo(codigoFornecedor);
+        if (novoFornecedorOpt.isEmpty() || (novoFornecedorOpt.get().getTipo() != TipoPessoa.FORNECEDOR && novoFornecedorOpt.get().getTipo() != TipoPessoa.AMBOS)) {
+            System.out.println("Fornecedor selecionado inválido ou não encontrado. Mantendo o fornecedor atual.");
+            codigoFornecedor = produtoExistente.getCodigoFornecedor();
+        }
 
         try {
             Produto produtoAtualizado = new Produto(codigo, descricao, custo, precoVenda, codigoFornecedor);
@@ -429,6 +442,283 @@ public class Principal {
             System.out.println("Produto removido com sucesso!");
         } else {
             System.out.println("Produto não encontrado ou erro ao remover.");
+        }
+    }
+
+    private static void menuPedidos() {
+        int opcao;
+        do {
+            System.out.println("\n--- MENU PEDIDOS DE Venda ---");
+            System.out.println("1 - Cadastrar Pedido");
+            System.out.println("2 - Listar Pedidos");
+            System.out.println("3 - Atualizar Pedido");
+            System.out.println("4 - Deletar Pedido");
+            System.out.println("0 - Voltar ao Menu Principal");
+            System.out.print("Opcao: ");
+            opcao = lerInteiro("");
+
+            switch (opcao) {
+                case 1:
+                    cadastrarPedido();
+                    break;
+                case 2:
+                    listarPedidos();
+                    break;
+                case 3:
+                    atualizarPedido();
+                    break;
+                case 4:
+                    deletarPedido();
+                    break;
+                case 0:
+                    break;
+                default:
+                    System.out.println("Opção inválida!");
+            }
+        } while (opcao != 0);
+    }
+
+    private static void cadastrarPedido() {
+        System.out.println("\n--- Cadastrar Novo Pedido de Venda ---");
+        int numeroPedido = lerInteiro("Número do Pedido: ");
+
+        if (pedidoVendaDAO.buscarPorNumero(numeroPedido).isPresent()) {
+            System.out.println("ERRO: Pedido com número " + numeroPedido + " já existe.");
+            return;
+        }
+
+        System.out.println("\n--- Selecionar Cliente ---");
+        List<Pessoa> clientes = pessoaDAO.listarTodas().stream()
+                .filter(p -> p.getTipo() == TipoPessoa.CLIENTE || p.getTipo() == TipoPessoa.AMBOS)
+                .toList();
+
+        if (clientes.isEmpty()) {
+            System.out.println("Nenhum cliente cadastrado. Cadastre um cliente primeiro.");
+            return;
+        }
+        clientes.forEach(c -> System.out.println("Código: " + c.getCodigo() + " - Nome: " + c.getNome()));
+        int codigoCliente = lerInteiro("Código do Cliente: ");
+
+        Optional<Pessoa> clienteOpt = pessoaDAO.buscarPorCodigo(codigoCliente);
+        if (clienteOpt.isEmpty() || (clienteOpt.get().getTipo() != TipoPessoa.CLIENTE && clienteOpt.get().getTipo() != TipoPessoa.AMBOS)) {
+            System.out.println("ERRO: Cliente não encontrado ou não é um tipo de cliente válido.");
+            return;
+        }
+        Pessoa cliente = clienteOpt.get();
+
+        System.out.println("\n--- Endereço de Entrega ---");
+        TipoEndereco tipoEnderecoEntrega = lerTipoEnderecoInput();
+
+        List<ItemPedido> itensPedido = new ArrayList<>();
+        System.out.println("\n--- Adicionar Itens ao Pedido ---");
+        while (true) {
+            System.out.print("Deseja adicionar um produto ao pedido? (s/n): ");
+            if (!sc.nextLine().trim().equalsIgnoreCase("s")) {
+                break;
+            }
+
+            listarProdutos();
+            int codigoProduto = lerInteiro("Código do Produto: ");
+            Optional<Produto> produtoOpt = produtoDAO.buscarPorCodigo(codigoProduto);
+
+            if (produtoOpt.isEmpty()) {
+                System.out.println("Produto não encontrado. Tente novamente.");
+                continue;
+            }
+            Produto produto = produtoOpt.get();
+
+            int quantidade = lerInteiro("Quantidade para " + produto.getDescricao() + ": ");
+
+            try {
+                ItemPedido item = new ItemPedido(produto.getCodigo(), quantidade, produto.getPrecoVenda());
+                Optional<ItemPedido> existingItem = itensPedido.stream()
+                                                                .filter(i -> i.getCodigoProduto() == item.getCodigoProduto())
+                                                                .findFirst();
+                if (existingItem.isPresent()) {
+                    existingItem.get().setQuantidade(existingItem.get().getQuantidade() + item.getQuantidade());
+                    System.out.println("Quantidade do item " + produto.getDescricao() + " atualizada.");
+                } else {
+                    itensPedido.add(item);
+                    System.out.println("Item " + produto.getDescricao() + " adicionado.");
+                }
+            } catch (IllegalArgumentException e) {
+                System.out.println("ERRO ao adicionar item: " + e.getMessage());
+            }
+        }
+
+        if (itensPedido.isEmpty()) {
+            System.out.println("Pedido de Venda deve conter pelo menos um item. Cancelando cadastro.");
+            return;
+        }
+
+        try {
+            PedidoVenda novoPedido = new PedidoVenda(numeroPedido, codigoCliente, tipoEnderecoEntrega, itensPedido);
+            if (pedidoVendaDAO.adicionar(novoPedido)) {
+                System.out.println("Pedido de Venda cadastrado com sucesso!");
+            } else {
+                System.out.println("Falha ao cadastrar Pedido de Venda. Verifique os dados.");
+            }
+        } catch (IllegalArgumentException e) {
+            System.out.println("ERRO ao cadastrar Pedido de Venda: " + e.getMessage());
+        }
+    }
+
+    private static void listarPedidos() {
+        List<PedidoVenda> pedidos = pedidoVendaDAO.listarTodos();
+        if (pedidos.isEmpty()) {
+            System.out.println("Nenhum pedido de venda cadastrado.");
+        } else {
+            System.out.println("\n--- Lista de Pedidos de Venda ---");
+            for (PedidoVenda pedido : pedidos) {
+                System.out.println("Número Pedido: " + pedido.getNumeroPedido());
+                System.out.print("  Cliente: ");
+                Optional<Pessoa> clienteOpt = pessoaDAO.buscarPorCodigo(pedido.getCodigoCliente());
+                clienteOpt.ifPresentOrElse(
+                    c -> System.out.println(c.getNome() + " (Cód: " + c.getCodigo() + ")"),
+                    () -> System.out.println("Cód: " + pedido.getCodigoCliente() + " (Não encontrado)")
+                );
+                System.out.println("  Endereço de Entrega (Tipo): " + pedido.getTipoEnderecoEntrega());
+                System.out.println("  Montante Total: R$" + df.format(pedido.getMontanteTotal()));
+                System.out.println("  Itens do Pedido:");
+                if (pedido.getItens().isEmpty()) {
+                    System.out.println("    (Nenhum item)");
+                } else {
+                    for (ItemPedido item : pedido.getItens()) {
+                        Optional<Produto> produtoOpt = produtoDAO.buscarPorCodigo(item.getCodigoProduto());
+                        String produtoDesc = produtoOpt.map(Produto::getDescricao).orElse("Produto Desconhecido");
+                        System.out.println("    - Produto: " + produtoDesc + " (Cód: " + item.getCodigoProduto() +
+                                           "), Quantidade: " + item.getQuantidade() +
+                                           ", Preço Unitário: R$" + df.format(item.getPrecoUnitarioNoPedido()) +
+                                           ", Subtotal: R$" + df.format(item.getSubtotal()));
+                    }
+                }
+                System.out.println("------------------------------------");
+            }
+        }
+    }
+
+    private static void atualizarPedido() {
+        System.out.println("\n--- Atualizar Pedido de Venda ---");
+        int numeroPedido = lerInteiro("Número do Pedido a atualizar: ");
+
+        Optional<PedidoVenda> pedidoOpt = pedidoVendaDAO.buscarPorNumero(numeroPedido);
+        if (pedidoOpt.isEmpty()) {
+            System.out.println("Pedido não encontrado.");
+            return;
+        }
+        PedidoVenda pedidoExistente = pedidoOpt.get();
+
+        System.out.println("Deixe campos em branco para manter os valores atuais, exceto para números ou tipos.");
+
+        System.out.print("Deseja mudar o cliente do pedido (s/n)? (Atual: " + pedidoExistente.getCodigoCliente() + "): ");
+        if (sc.nextLine().trim().equalsIgnoreCase("s")) {
+            System.out.println("--- Selecionar Novo Cliente ---");
+            List<Pessoa> clientes = pessoaDAO.listarTodas().stream()
+                    .filter(p -> p.getTipo() == TipoPessoa.CLIENTE || p.getTipo() == TipoPessoa.AMBOS)
+                    .toList();
+            if (clientes.isEmpty()) {
+                System.out.println("Nenhum cliente disponível. Cliente não será alterado.");
+            } else {
+                clientes.forEach(c -> System.out.println("Código: " + c.getCodigo() + " - Nome: " + c.getNome()));
+                int novoCodigoCliente = lerInteiro("Novo Código do Cliente: ");
+                Optional<Pessoa> novoClienteOpt = pessoaDAO.buscarPorCodigo(novoCodigoCliente);
+                if (novoClienteOpt.isPresent() && (novoClienteOpt.get().getTipo() == TipoPessoa.CLIENTE || novoClienteOpt.get().getTipo() == TipoPessoa.AMBOS)) {
+                    pedidoExistente.setCodigoCliente(novoCodigoCliente);
+                    System.out.println("Cliente atualizado para " + novoClienteOpt.get().getNome());
+                } else {
+                    System.out.println("Novo cliente inválido ou não encontrado. Cliente não será alterado.");
+                }
+            }
+        }
+
+        System.out.print("Deseja mudar o tipo de endereço de entrega (s/n)? (Atual: " + pedidoExistente.getTipoEnderecoEntrega() + "): ");
+        if (sc.nextLine().trim().equalsIgnoreCase("s")) {
+            TipoEndereco novoTipoEndereco = lerTipoEnderecoInput();
+            pedidoExistente.setTipoEnderecoEntrega(novoTipoEndereco);
+            System.out.println("Tipo de endereço de entrega atualizado para " + novoTipoEndereco);
+        }
+
+        System.out.println("\n--- Gerenciar Itens do Pedido ---");
+        List<ItemPedido> itensAtuaisTrabalho = new ArrayList<>(pedidoExistente.getItens());
+
+        while (true) {
+            System.out.println("\nOpções de itens:");
+            System.out.println("1 - Adicionar/Atualizar Item");
+            System.out.println("2 - Remover Item");
+            System.out.println("0 - Concluir Edição de Itens");
+            int itemOpcao = lerInteiro("Opção: ");
+
+            if (itemOpcao == 0) break;
+
+            switch (itemOpcao) {
+                case 1:
+                    listarProdutos();
+                    int codProdAddItem = lerInteiro("Código do Produto a adicionar/atualizar: ");
+                    Optional<Produto> prodToAddOpt = produtoDAO.buscarPorCodigo(codProdAddItem);
+                    if (prodToAddOpt.isEmpty()) {
+                        System.out.println("Produto não encontrado.");
+                        break;
+                    }
+                    Produto prodToAdd = prodToAddOpt.get();
+                    int qtdAddItem = lerInteiro("Quantidade para " + prodToAdd.getDescricao() + ": ");
+
+                    try {
+                        ItemPedido newItem = new ItemPedido(prodToAdd.getCodigo(), qtdAddItem, prodToAdd.getPrecoVenda());
+                        Optional<ItemPedido> existingItemInList = itensAtuaisTrabalho.stream()
+                                                                             .filter(i -> i.getCodigoProduto() == newItem.getCodigoProduto())
+                                                                             .findFirst();
+                        if (existingItemInList.isPresent()) {
+                            existingItemInList.get().setQuantidade(newItem.getQuantidade());
+                            existingItemInList.get().setPrecoUnitarioNoPedido(newItem.getPrecoUnitarioNoPedido());
+                            System.out.println("Item " + prodToAdd.getDescricao() + " atualizado.");
+                        } else {
+                            itensAtuaisTrabalho.add(newItem);
+                            System.out.println("Item " + prodToAdd.getDescricao() + " adicionado.");
+                        }
+                    } catch (IllegalArgumentException e) {
+                        System.out.println("ERRO ao adicionar/atualizar item: " + e.getMessage());
+                    }
+                    break;
+                case 2:
+                    int codProdRemover = lerInteiro("Código do Produto a remover: ");
+                    boolean itemRemovido = itensAtuaisTrabalho.removeIf(item -> item.getCodigoProduto() == codProdRemover);
+                    if (itemRemovido) {
+                        System.out.println("Item removido com sucesso.");
+                    } else {
+                        System.out.println("Item não encontrado no pedido.");
+                    }
+                    break;
+                default:
+                    System.out.println("Opção inválida para itens.");
+            }
+        }
+
+        if (itensAtuaisTrabalho.isEmpty()) {
+            System.out.println("ERRO: Um pedido de venda não pode ficar sem itens. Atualização cancelada.");
+            return;
+        }
+
+        try {
+            pedidoExistente.setItens(itensAtuaisTrabalho);
+
+            if (pedidoVendaDAO.atualizar(pedidoExistente)) {
+                System.out.println("Pedido de Venda atualizado com sucesso!");
+            } else {
+                System.out.println("Falha ao atualizar Pedido de Venda. Verifique os dados.");
+            }
+        } catch (IllegalArgumentException e) {
+            System.out.println("ERRO ao finalizar atualização do pedido: " + e.getMessage());
+        }
+    }
+
+    private static void deletarPedido() {
+        System.out.println("\n--- Deletar Pedido de Venda ---");
+        int numeroPedido = lerInteiro("Número do Pedido a deletar: ");
+
+        if (pedidoVendaDAO.remover(numeroPedido)) {
+            System.out.println("Pedido de Venda removido com sucesso!");
+        } else {
+            System.out.println("Pedido de Venda não encontrado ou erro ao remover.");
         }
     }
 }
